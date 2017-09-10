@@ -17,11 +17,14 @@ import prePocess
 #系统路径调用
 import sys
 import os
+#对象存放
+import pickle
 
 #相关参数
 VALIDATION_SPLIT = 0.2 #验证集占比
 EMBEDDING_DIM = 100    #EMBEDDING维度
 MAX_SEQUENCE_LENGTH = 93  #Seq最大维度
+EPOCHES = 20 #训练循环次数
 
 
 #__main__
@@ -34,9 +37,26 @@ prePocess.loadText(example,label,projectPath)
 
 #模型构建
 
+#2.0 增加Word2Vec的所有单词到tokenizer中
+model_word2vec = word2vec.load(projectPath +"/Data_final/word2vec/corpusWord2Vec.bin") 
+print("Strat Word2vec copy!")
+for i in range(507882):
+	word_all = ''
+	word_all = word_all + " " + model_word2vec.vocab[i]
+	if i % 10000 == 0:
+		print("Word2vec input :finish %s " % i)
+example.append(word_all)
+
 #Text to Seq
 tokenizer = Tokenizer()  #tokenizer用于sequence的一些处理，由文本到seq
 tokenizer.fit_on_texts(example)
+#将最后一行的Word2vec删掉
+del example[5775]
+#保存tokenizer
+print("保存tokenizer")
+pickle.dump(tokenizer, open(projectPath +"/Data_final/tokenizerFile", 'wb'))
+print("保存完成！")
+
 sequences = tokenizer.texts_to_sequences(example) #这一步将文本词汇使用one-hot变为int，并且根据频率创建了一个词典，用于index和文本之间的查询
 
 word_index = tokenizer.word_index
@@ -71,11 +91,10 @@ y_val = label[-nb_validation_samples:]
 '''
 
 embeddings_index = {}
-
-model = word2vec.load(projectPath +"/Data_final/word2vec/corpusWord2Vec.bin")  
+ 
 
 ##统计数据 保留接口
-numWords,numVectors = model.vectors.shape
+numWords,numVectors = model_word2vec.vectors.shape
 
 print('Found %s word vectors.' % numWords)
 
@@ -88,7 +107,7 @@ for i in range(100):
 embedding_matrix = np.zeros((len(word_index) + 1, EMBEDDING_DIM))
 for word, i in word_index.items():
     try:
-    	embedding_vector = model[word]
+    	embedding_vector = model_word2vec[word]
      	# words not found in embedding index will be all-zeros.
     except KeyError as e:
        	embedding_matrix[i] = zero_100
@@ -102,7 +121,7 @@ for word, i in word_index.items():
 #神经网络  其他层设置   使用LSTM与CNN结合方式
 
 model = Sequential()
-model.add(Embedding(len(word_index) + 1,EMBEDDING_DIM,weights=[embedding_matrix],input_length=MAX_SEQUENCE_LENGTH,trainable=False))
+model.add(Embedding(len(word_index) + 1,EMBEDDING_DIM,weights=[embedding_matrix],trainable=False)) #input_length=MAX_SEQUENCE_LENGTH 不限定输入的多少，方便后面的长文本预测
 model.add(Conv1D(filters=100, kernel_size=10, padding='same', activation='relu'))#
 model.add(MaxPooling1D(pool_size=2))
 model.add(LSTM(100,dropout=0.2, recurrent_dropout=0.2)) #加入Dropout
@@ -111,14 +130,14 @@ model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy']
 print(model.summary())
 
 #训练及误差结果
-model.fit(x_train, y_train, epochs=1, batch_size=64)
+model.fit(x_train, y_train, epochs= EPOCHES, batch_size=64)
 # Final evaluation of the model
 scores = model.evaluate(x_val, y_val, verbose=0)
 print("Accuracy: %.2f%%" % (scores[1]*100))
 
 
 #保存模型
-model.save("Model with dropout")
+model.save(projectPath + "/Sentiment-Analysis-for-News/Src/Model with dropout")
 
 
 
